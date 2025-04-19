@@ -282,6 +282,7 @@ ThreadManager manager;
 void timer_handle (int sig)
 {
   manager.switch_thread (0);
+
 }
 /* External interface */
 
