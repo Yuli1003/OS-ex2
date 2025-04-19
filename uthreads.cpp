@@ -214,31 +214,40 @@ class ThreadManager
   {
     int cur_tid = _running_thread;
     int next_tid = get_next_ready_tid();
+    if (next_tid != 0)
+    {
+      _ready_queue.pop ();
+      _threads[next_tid]->set_state (RUNNING);
+    }
 
     // save the current thread(if flag=0)
-    int ret_val;
+    int ret_val = 0;
     if (is_cur_terminated == 0) {
       ret_val = sigsetjmp(_env[cur_tid],1);
     }
 
+
     // TODO - if cur_tid = 0 , do we need to push is to the queue?
-    if (cur_tid != 0 && is_cur_terminated == 0 &&
-        _threads[cur_tid]->get_state () == RUNNING && ret_val == 0)
+    start_timer();
+    if (ret_val == 0)
     {
-      _ready_queue.push (cur_tid);
-      _threads[cur_tid]->set_state (READY);
+      if (!(_ready_queue.empty ()) && cur_tid != 0 && is_cur_terminated == 0
+          && _threads[cur_tid]->get_state () == RUNNING)
+      {
+        _ready_queue.push (cur_tid);
+        _threads[cur_tid]->set_state (READY);
+      }
+
+      //update cur thread
+      _running_thread = next_tid;
+      //TODO:
+      // 1.update both quantum counters
+      // 2.update sleeping threads
+      // 3.check blocked signals?
+
+      // jump to the next thread
+      siglongjmp (_env[_running_thread],1);
     }
-
-    // TODO - we stopped here last time! :)
-
-    if (next_tid != 0){
-      _ready_queue.pop ();
-      _threads[next_tid]->set_state (RUNNING);
-    }
-    _running_thread = next_tid;
-    // load next thread
-
-    // jump to the next thread
   }
 
   int get_quantum_counter_of_tid (int tid)
