@@ -66,9 +66,6 @@ class Thread
  public:
   Thread (int tid, thread_entry_point entry_point)
   {
-    //TODO think how to solve calls about the main thread (quantum count and
-    // such)
-
     _tid = tid;
     entry_point = entry_point;
 
@@ -145,12 +142,39 @@ class Thread
 
 class ThreadManager
 {
+ private:
+  std::map<int, Thread *> _threads{};
+  std::map<int, sigjmp_buf> _env{};
+  std::deque<int> _ready_queue{};
+  std::array<int, MAX_THREAD_NUM> _free_tids = {};
+  int _running_thread{};
+  int _time_per_thread{};
+  int _quantum_counter{};
+  struct sigaction _sa = {0};
+  struct itimerval _timer{};
+  int _main_thread_quantums;
+
+  int next_free_tid ()
+  {
+    // TODO - is the 0 thread is part of 100 _threads?
+    for (int i = 0; i < MAX_THREAD_NUM; i++)
+    {
+      if (_free_tids[i] == 0)
+      {
+        _free_tids[i] = 1;
+        return i;
+      }
+    }
+    return -1;
+  }
+
  public:
   ThreadManager ()
   = default;
 
   void init (int quantum_usecs)
   {
+    _main_thread_quantums = 1;
     _time_per_thread = quantum_usecs;
     _running_thread = 0;
     _quantum_counter = 1;
@@ -284,7 +308,6 @@ class ThreadManager
       ret_val = sigsetjmp(_env[cur_tid], 1);
     }
 
-
     // TODO - if cur_tid = 0 , do we need to push is to the queue?
     start_timer ();
     if (ret_val == 0)
@@ -302,7 +325,12 @@ class ThreadManager
       //update cur thread
       _running_thread = next_tid;
       _quantum_counter++;
-      _threads[next_tid]->inc_quantum_counter ();
+      if (next_tid == 0){
+        _main_thread_quantums++;
+      }
+      else{
+        _threads[next_tid]->inc_quantum_counter ();
+      }
       manage_sleepers ();
 
 
@@ -313,7 +341,12 @@ class ThreadManager
 
   int get_quantum_counter_of_tid (int tid)
   {
-    return _threads[tid]->get_quantum_counter ();
+    if (tid == 0){
+      return _main_thread_quantums;
+    }
+    else{
+      return _threads[tid]->get_quantum_counter ();
+    }
   }
 
   int get_total_quantum_counter () const
@@ -363,31 +396,6 @@ class ThreadManager
         }
       }
     }
-  }
-
- private:
-  std::map<int, Thread *> _threads{};
-  std::map<int, sigjmp_buf> _env{};
-  std::deque<int> _ready_queue{};
-  std::array<int, MAX_THREAD_NUM> _free_tids = {};
-  int _running_thread{};
-  int _time_per_thread{};
-  int _quantum_counter{};
-  struct sigaction _sa = {0};
-  struct itimerval _timer{};
-
-  int next_free_tid ()
-  {
-    // TODO - is the 0 thread is part of 100 _threads?
-    for (int i = 0; i < MAX_THREAD_NUM; i++)
-    {
-      if (_free_tids[i] == 0)
-      {
-        _free_tids[i] = 1;
-        return i;
-      }
-    }
-    return -1;
   }
 };
 
