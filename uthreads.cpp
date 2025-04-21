@@ -67,21 +67,34 @@ class Thread
   Thread (int tid, thread_entry_point entry_point)
   {
     _tid = tid;
-    entry_point = entry_point;
+//    entry_point = entry_point;
 
-    _stack = new (std::nothrow) char[STACK_SIZE];
-    if (_stack == nullptr)
-    {
-      fprintf (stderr, MEMORY_ALOC_ERR);
-      exit (1);
-    }
+//    _stack = new (std::nothrow) char[STACK_SIZE];
+//    if (_stack == nullptr)
+//    {
+//      fprintf (stderr, MEMORY_ALOC_ERR);
+//      exit (1);
+//    }
 
-    _running_quantum_counter = 1;
-    _sp = (address_t) _stack + STACK_SIZE - sizeof (address_t);
-    _pc = (address_t) entry_point;
+    _running_quantum_counter = 0;
+//    _sp = (address_t) _stack + STACK_SIZE - sizeof (address_t);
+//    _pc = (address_t) entry_point;
     _state = READY;
     _is_sleeping = false;
     _sleeping_counter = 0;
+
+    if (tid == 0) {          // ← main thread: אין stack חדש
+      _stack = nullptr;
+      _sp = 0;
+      _pc = 0;
+    } else {
+      _stack = new (std::nothrow) char[STACK_SIZE];
+      if (_stack == nullptr) {
+        fprintf (stderr, MEMORY_ALOC_ERR);;
+      }
+      _sp = (address_t)_stack + STACK_SIZE - sizeof(address_t);
+      _pc = (address_t)entry_point;
+    }
   }
 
   ~Thread ()
@@ -175,12 +188,17 @@ class ThreadManager
 
   void init (int quantum_usecs)
   {
-    _main_thread_quantums = 1;
     _time_per_thread = quantum_usecs;
     _running_thread = 0;
     _quantum_counter = 1;
     _free_tids[0] = 1;
+
+    _threads[0] = new Thread(0, nullptr);
+    _threads[0]->set_state(RUNNING);
+    _threads[0]->inc_quantum_counter();
+    _free_tids[0] = 1;
     setup_thread (0);
+
   }
 
   void start_timer ()
@@ -232,7 +250,8 @@ class ThreadManager
 
   void remove_thread (int tid)
   {
-    delete &_threads[tid];
+//    delete &_threads[tid];
+    delete _threads[tid];
     _threads.erase (tid);
     _env.erase (tid);
     _free_tids[tid] = 0;
@@ -245,7 +264,7 @@ class ThreadManager
     {
       if (_free_tids[i] == 1)
       {
-        remove_thread (i + 1);
+        remove_thread (i);
       }
     }
     _env.erase (0);
@@ -271,7 +290,7 @@ class ThreadManager
     return _running_thread;
   }
 
-  int setup_thread (int tid)
+  void setup_thread (int tid)
   {
     sigsetjmp(_env[tid], 1);
     if (tid != 0)
@@ -284,15 +303,12 @@ class ThreadManager
 
   int get_next_ready_tid ()
   {
-    int cur_tid;
-    while (not _ready_queue.empty ())
-    {
-      cur_tid = _ready_queue.front ();
-      if (_free_tids[cur_tid] == 1)
-      {
-        return cur_tid;
+    while (! _ready_queue.empty()) {
+      int tid = _ready_queue.front();
+      _ready_queue.pop_front();
+      if (_free_tids[tid] == 1) {
+        return tid;
       }
-      _ready_queue.pop_front ();
     }
     return 0;
   }
@@ -301,11 +317,6 @@ class ThreadManager
   {
     int cur_tid = _running_thread;
     int next_tid = get_next_ready_tid ();
-    if (next_tid != 0)
-    {
-      _ready_queue.pop_front ();
-      _threads[next_tid]->set_state (RUNNING);
-    }
 
     // save the current thread(if flag=0)
     int ret_val = 0;
@@ -318,27 +329,20 @@ class ThreadManager
     start_timer ();
     if (ret_val == 0)
     {
-      if (!(_ready_queue.empty ()) && cur_tid != 0 && is_cur_terminated == 0
-          && _threads[cur_tid]->get_state () == RUNNING)
+      if (is_cur_terminated == 0 && cur_tid != next_tid &&
+          _threads[cur_tid]->get_state() == RUNNING &&
+          !_threads[cur_tid]->get_is_sleeping())
       {
-        if (not _threads[cur_tid]->get_is_sleeping ())
-        {
-          _ready_queue.push_back (cur_tid);
-        }
-        _threads[cur_tid]->set_state (READY);
+        _threads[cur_tid]->set_state(READY);
+        _ready_queue.push_back(cur_tid);
       }
 
       //update cur thread
       _running_thread = next_tid;
       _quantum_counter++;
-      if (next_tid == 0)
-      {
-        _main_thread_quantums++;
-      }
-      else
-      {
-        _threads[next_tid]->inc_quantum_counter ();
-      }
+
+      _threads[next_tid]->inc_quantum_counter ();
+      _threads[next_tid]->set_state(RUNNING);
       manage_sleepers ();
 
 
@@ -354,14 +358,8 @@ class ThreadManager
       fprintf (stderr, TID_NOT_EXISTS_ERR);
       return -1;
     }
-    if (tid == 0)
-    {
-      return _main_thread_quantums;
-    }
-    else
-    {
-      return _threads[tid]->get_quantum_counter ();
-    }
+
+    return _threads[tid]->get_quantum_counter ();
   }
 
   int get_total_quantum_counter () const
@@ -382,15 +380,12 @@ class ThreadManager
       exit (0);
     }
     remove_thread (tid);
-
     if (get_running_tid () == tid)
     {
       switch_thread (1);
-    }
-    else
-    {
       return 0;
     }
+    return 0;
   }
 
   int block_thread (int tid)
@@ -457,8 +452,8 @@ class ThreadManager
       if (pair.second->get_is_sleeping ())
       {
         pair.second->dec_sleeping_counter ();
-        if (pair.second->get_is_sleeping () && pair.second->get_state () !=
-                                               BLOCKED)
+        if (!pair.second->get_is_sleeping () &&
+        pair.second->get_state () !=BLOCKED)
         {
           _ready_queue.push_back (pair.first);
         }
@@ -485,7 +480,7 @@ sigset_t block_signals ()
 
 void unblock_signals (sigset_t old_mask)
 {
-  sigprocmask (SIG_UNBLOCK, &old_mask, nullptr);
+  sigprocmask (SIG_SETMASK, &old_mask, nullptr);
   sigset_t waiting_list;
   sigpending (&waiting_list);
   if (sigismember (&waiting_list, SIGVTALRM))
