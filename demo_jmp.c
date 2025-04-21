@@ -123,7 +123,7 @@ void thread1(void)
 
 void setup_thread(int tid, char *stack, thread_entry_point entry_point)
 {
-    // initializes env[tid] to use the right stack, and to run from the function 'entry_point', when we'll use
+    // initializes env[_tid] to use the right _stack, and to run from the function '_entry_point', when we'll use
     // siglongjmp to jump into the thread.
     address_t sp = (address_t) stack + STACK_SIZE - sizeof(address_t);
     address_t pc = (address_t) entry_point;
@@ -136,7 +136,7 @@ void setup_thread(int tid, char *stack, thread_entry_point entry_point)
 
 void setup(void)
 {
-    // sets up the threads, so they'll have the wanted initial SP and PC.
+    // sets up the _threads, so they'll have the wanted initial SP and PC.
     setup_thread(0, stack0, thread0);
     setup_thread(1, stack1, thread1);
 }

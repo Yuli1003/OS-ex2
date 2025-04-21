@@ -1,5 +1,5 @@
 /*
- * Interval-timer demo program.
+ * Interval-_timer demo program.
  * Hebrew University OS course.
  * Author: OS, os@cs.huji.ac.il
  */
@@ -31,15 +31,15 @@ int main(void)
         printf("sigaction error.");
     }
 
-    // Configure the timer to expire after 1 sec... */
+    // Configure the _timer to expire after 1 sec... */
     timer.it_value.tv_sec = 1;        // first time interval, seconds part
     timer.it_value.tv_usec = 0;        // first time interval, microseconds part
 
-    // configure the timer to expire every 3 sec after that.
+    // configure the _timer to expire every 3 sec after that.
     timer.it_interval.tv_sec = 3;    // following time intervals, seconds part
     timer.it_interval.tv_usec = 0;    // following time intervals, microseconds part
 
-    // Start a virtual timer. It counts down whenever this process is executing.
+    // Start a virtual _timer. It counts down whenever this process is executing.
     if (setitimer(ITIMER_VIRTUAL, &timer, NULL))
     {
         printf("setitimer error.");
