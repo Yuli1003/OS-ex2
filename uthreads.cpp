@@ -70,9 +70,10 @@ class Thread
     entry_point = entry_point;
 
     _stack = new (std::nothrow) char[STACK_SIZE];
-    if (_stack == nullptr) {
-      fprintf(stderr, MEMORY_ALOC_ERR);
-      exit(1);
+    if (_stack == nullptr)
+    {
+      fprintf (stderr, MEMORY_ALOC_ERR);
+      exit (1);
     }
 
     _running_quantum_counter = 1;
@@ -205,18 +206,23 @@ class ThreadManager
 
   int add_thread (thread_entry_point entry_point)
   {
+    if (not entry_point)
+    {
+      fprintf (stderr, SPAWN_ERR);
+      return -1;
+    }
     int tid = next_free_tid ();
     if (tid == -1)
     {
       fprintf (stderr, LIMIT_NUM_OF_TRD_ERR);
       return -1;
     }
-    //Thread thread = Thread (tid, entry_point);
-    Thread* thread = new (std::nothrow) Thread(tid, entry_point);
-    if (thread == nullptr) {
-      fprintf(stderr, MEMORY_ALOC_ERR);
+    Thread *thread = new (std::nothrow) Thread (tid, entry_point);
+    if (thread == nullptr)
+    {
+      fprintf (stderr, MEMORY_ALOC_ERR);
       _free_tids[tid] = 0;
-      exit(1);
+      exit (1);
     }
     _threads[tid] = thread;
     _ready_queue.push_back (tid);
@@ -325,10 +331,12 @@ class ThreadManager
       //update cur thread
       _running_thread = next_tid;
       _quantum_counter++;
-      if (next_tid == 0){
+      if (next_tid == 0)
+      {
         _main_thread_quantums++;
       }
-      else{
+      else
+      {
         _threads[next_tid]->inc_quantum_counter ();
       }
       manage_sleepers ();
@@ -341,10 +349,17 @@ class ThreadManager
 
   int get_quantum_counter_of_tid (int tid)
   {
-    if (tid == 0){
+    if (not is_tid_exists (tid))
+    {
+      fprintf (stderr, TID_NOT_EXISTS_ERR);
+      return -1;
+    }
+    if (tid == 0)
+    {
       return _main_thread_quantums;
     }
-    else{
+    else
+    {
       return _threads[tid]->get_quantum_counter ();
     }
   }
@@ -354,8 +369,43 @@ class ThreadManager
     return _quantum_counter;
   }
 
-  void block_thread (int tid)
+  int terminate_thread (int tid)
   {
+    if (not is_tid_exists (tid))
+    {
+      fprintf (stderr, TID_NOT_EXISTS_ERR);
+      return -1;
+    }
+    if (tid == 0)
+    {
+      remove_all ();
+      exit (0);
+    }
+    remove_thread (tid);
+
+    if (get_running_tid () == tid)
+    {
+      switch_thread (1);
+    }
+    else
+    {
+      return 0;
+    }
+  }
+
+  int block_thread (int tid)
+  {
+    if (tid == 0)
+    {
+      fprintf (stderr, BLOCK_MAIN_THREAD_ERR);
+      return -1;
+    }
+    if (not is_tid_exists (tid))
+    {
+      fprintf (stderr, BLOCK_TID_NOT_EXISTS_ERR);
+      return -1;
+    }
+
     _threads[tid]->set_state (BLOCKED);
     if (tid == _running_thread)
     {
@@ -365,21 +415,39 @@ class ThreadManager
     {
       erase_tid_from_queue (tid);
     }
+    return 0;
   }
 
-  void resume_thread (int tid)
+  int resume_thread (int tid)
   {
+    if (not is_tid_exists (tid))
+    {
+      fprintf (stderr, RESUME_NOT_EXISTS_TID_ERR);
+      return -1;
+    }
     if (tid != 0 && _threads[tid]->get_state () == BLOCKED)
     {
       _threads[tid]->set_state (READY);
       _ready_queue.push_back (tid);
     }
+    return 0;
   }
 
-  void sleep_running_thread (int num_quantums)
+  int sleep_running_thread (int num_quantums)
   {
+    if (get_running_tid () == 0)
+    {
+      fprintf (stderr, MAIN_THREAD_CALL_SLEEP_ERR);
+      return -1;
+    }
+    if (num_quantums < 0)
+    {
+      fprintf (stderr, NOT_VALID_QUANTUM_NUM);
+      return -1;
+    }
     _threads[_running_thread]->set_sleeping_counter (num_quantums + 1);
     switch_thread ();
+    return 0;
   }
 
   void manage_sleepers ()
@@ -405,6 +473,27 @@ void timer_handle (int sig)
 {
   manager.switch_thread (0);
 }
+
+sigset_t block_signals ()
+{
+  sigset_t new_mask, old_mask;
+  sigemptyset (&new_mask);
+  sigaddset (&new_mask, SIGVTALRM);
+  sigprocmask (SIG_BLOCK, &new_mask, &old_mask);
+  return old_mask;
+}
+
+void unblock_signals (sigset_t old_mask)
+{
+  sigprocmask (SIG_UNBLOCK, &old_mask, nullptr);
+  sigset_t waiting_list;
+  sigpending (&waiting_list);
+  if (sigismember (&waiting_list, SIGVTALRM))
+  {
+    manager.switch_thread ();
+  }
+}
+
 /* External interface */
 
 int uthread_init (int quantum_usecs)
@@ -421,100 +510,65 @@ int uthread_init (int quantum_usecs)
 
 int uthread_spawn (thread_entry_point entry_point)
 {
-  if (not entry_point)
-  {
-    fprintf (stderr, SPAWN_ERR);
-    return -1;
-  }
-
-  return manager.add_thread (entry_point);
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.add_thread (entry_point);
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
 int uthread_terminate (int tid)
 {
-  if (not manager.is_tid_exists (tid))
-  {
-    fprintf (stderr, TID_NOT_EXISTS_ERR);
-    return -1;
-  }
-  if (tid == 0)
-  {
-    manager.remove_all ();
-    exit (0);
-  }
-  manager.remove_thread (tid);
-
-  if (manager.get_running_tid () == tid)
-  {
-    manager.switch_thread (1);
-  }
-  else
-  {
-    return 0;
-  }
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.terminate_thread (tid);
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
 int uthread_block (int tid)
 {
-  if (tid == 0)
-  {
-    fprintf (stderr, BLOCK_MAIN_THREAD_ERR);
-    return -1;
-  }
-  if (not manager.is_tid_exists (tid))
-  {
-    fprintf (stderr, BLOCK_TID_NOT_EXISTS_ERR);
-    return -1;
-  }
-
-  manager.block_thread (tid);
-  return 0;
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.block_thread (tid);
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
 int uthread_resume (int tid)
 {
-  if (not manager.is_tid_exists (tid))
-  {
-    fprintf (stderr, RESUME_NOT_EXISTS_TID_ERR);
-    return -1;
-  }
-  manager.resume_thread (tid);
-  return 0;
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.resume_thread (tid);
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
 int uthread_sleep (int num_quantums)
 {
-  if (manager.get_running_tid () == 0)
-  {
-    fprintf (stderr, MAIN_THREAD_CALL_SLEEP_ERR);
-    return -1;
-  }
-  if (num_quantums < 0)
-  {
-    fprintf (stderr, NOT_VALID_QUANTUM_NUM);
-    return -1;
-  }
-  manager.sleep_running_thread (num_quantums);
-  return 0;
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.sleep_running_thread (num_quantums);
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
 int uthread_get_tid ()
 {
-  return manager.get_running_tid ();
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.get_running_tid ();
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
 int uthread_get_total_quantums ()
 {
-  return manager.get_total_quantum_counter ();
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.get_total_quantum_counter ();
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
 int uthread_get_quantums (int tid)
 {
-  if (not manager.is_tid_exists (tid))
-  {
-    fprintf (stderr, TID_NOT_EXISTS_ERR);
-    return -1;
-  }
-  return manager.get_quantum_counter_of_tid (tid);
+  sigset_t blocked_sigs = block_signals ();
+  int ret_val = manager.get_quantum_counter_of_tid (tid);
+  unblock_signals (blocked_sigs);
+  return ret_val;
 }
 
