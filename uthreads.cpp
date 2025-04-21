@@ -240,6 +240,7 @@ class ThreadManager
 
       //update cur thread
       _running_thread = next_tid;
+
       //TODO:
       // 1.update both quantum counters
       // 2.update sleeping threads
