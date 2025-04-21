@@ -21,6 +21,7 @@
 #define RESUME_NOT_EXISTS_TID_ERR "thread library error: trying to resume non-existing thread"
 #define MAIN_THREAD_CALL_SLEEP_ERR "thread library error: trying to sleep the main thread"
 #define NOT_VALID_QUANTUM_NUM "thread library error: number of quantums is not valid"
+#define MEMORY_ALOC_ERR "system error: memory allocation failed\n"
 
 /* translate address */
 
@@ -65,10 +66,16 @@ class Thread
  public:
   Thread (int tid, thread_entry_point entry_point)
   {
-    tid = tid;
+    _tid = tid;
     entry_point = entry_point;
-    _stack = new char[STACK_SIZE];
-    _running_quantum_counter = 0;
+
+    _stack = new (std::nothrow) char[STACK_SIZE];
+    if (_stack == nullptr) {
+      fprintf(stderr, MEMORY_ALOC_ERR);
+      exit(1);
+    }
+
+    _running_quantum_counter = 1;
     _sp = (address_t) _stack + STACK_SIZE - sizeof (address_t);
     _pc = (address_t) entry_point;
     _state = READY;
@@ -135,12 +142,39 @@ class Thread
 
 class ThreadManager
 {
+ private:
+  std::map<int, Thread *> _threads{};
+  std::map<int, sigjmp_buf> _env{};
+  std::deque<int> _ready_queue{};
+  std::array<int, MAX_THREAD_NUM> _free_tids = {};
+  int _running_thread{};
+  int _time_per_thread{};
+  int _quantum_counter{};
+  struct sigaction _sa = {0};
+  struct itimerval _timer{};
+  int _main_thread_quantums;
+
+  int next_free_tid ()
+  {
+    // TODO - is the 0 thread is part of 100 _threads?
+    for (int i = 0; i < MAX_THREAD_NUM; i++)
+    {
+      if (_free_tids[i] == 0)
+      {
+        _free_tids[i] = 1;
+        return i;
+      }
+    }
+    return -1;
+  }
+
  public:
   ThreadManager ()
   = default;
 
   void init (int quantum_usecs)
   {
+    _main_thread_quantums = 1;
     _time_per_thread = quantum_usecs;
     _running_thread = 0;
     _quantum_counter = 1;
@@ -177,8 +211,14 @@ class ThreadManager
       fprintf (stderr, LIMIT_NUM_OF_TRD_ERR);
       return -1;
     }
-    Thread thread = Thread (tid, entry_point);
-    _threads[tid] = &thread;
+    //Thread thread = Thread (tid, entry_point);
+    Thread* thread = new (std::nothrow) Thread(tid, entry_point);
+    if (thread == nullptr) {
+      fprintf(stderr, MEMORY_ALOC_ERR);
+      _free_tids[tid] = 0;
+      exit(1);
+    }
+    _threads[tid] = thread;
     _ready_queue.push_back (tid);
     setup_thread (tid);
     return tid;
@@ -268,7 +308,6 @@ class ThreadManager
       ret_val = sigsetjmp(_env[cur_tid], 1);
     }
 
-
     // TODO - if cur_tid = 0 , do we need to push is to the queue?
     start_timer ();
     if (ret_val == 0)
@@ -286,12 +325,14 @@ class ThreadManager
       //update cur thread
       _running_thread = next_tid;
       _quantum_counter++;
-      _threads[next_tid]->inc_quantum_counter ();
+      if (next_tid == 0){
+        _main_thread_quantums++;
+      }
+      else{
+        _threads[next_tid]->inc_quantum_counter ();
+      }
       manage_sleepers ();
 
-      //TODO:
-      // 2.update sleeping threads
-      // 3.check blocked signals?
 
       // jump to the next thread
       siglongjmp (_env[_running_thread], 1);
@@ -300,7 +341,12 @@ class ThreadManager
 
   int get_quantum_counter_of_tid (int tid)
   {
-    return _threads[tid]->get_quantum_counter ();
+    if (tid == 0){
+      return _main_thread_quantums;
+    }
+    else{
+      return _threads[tid]->get_quantum_counter ();
+    }
   }
 
   int get_total_quantum_counter () const
@@ -350,31 +396,6 @@ class ThreadManager
         }
       }
     }
-  }
-
- private:
-  std::map<int, Thread *> _threads{};
-  std::map<int, sigjmp_buf> _env{};
-  std::deque<int> _ready_queue{};
-  std::array<int, MAX_THREAD_NUM> _free_tids = {};
-  int _running_thread{};
-  int _time_per_thread{};
-  int _quantum_counter{};
-  struct sigaction _sa = {0};
-  struct itimerval _timer{};
-
-  int next_free_tid ()
-  {
-    // TODO - is the 0 thread is part of 100 _threads?
-    for (int i = 0; i < MAX_THREAD_NUM; i++)
-    {
-      if (_free_tids[i] == 0)
-      {
-        _free_tids[i] = 1;
-        return i;
-      }
-    }
-    return -1;
   }
 };
 
