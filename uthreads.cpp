@@ -66,6 +66,8 @@ class Thread
  public:
   Thread (int tid, thread_entry_point entry_point)
   {
+    //TODO think how to solve calls about the main thread (quantum count and
+    // such)
 
     _tid = tid;
     entry_point = entry_point;
@@ -76,7 +78,7 @@ class Thread
       exit(1);
     }
 
-    _running_quantum_counter = 0;
+    _running_quantum_counter = 1;
     _sp = (address_t) _stack + STACK_SIZE - sizeof (address_t);
     _pc = (address_t) entry_point;
     _state = READY;
