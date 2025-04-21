@@ -21,6 +21,7 @@
 #define RESUME_NOT_EXISTS_TID_ERR "thread library error: trying to resume non-existing thread"
 #define MAIN_THREAD_CALL_SLEEP_ERR "thread library error: trying to sleep the main thread"
 #define NOT_VALID_QUANTUM_NUM "thread library error: number of quantums is not valid"
+#define MEMORY_ALOC_ERR "system error: memory allocation failed\n"
 
 /* translate address */
 
@@ -65,9 +66,16 @@ class Thread
  public:
   Thread (int tid, thread_entry_point entry_point)
   {
-    tid = tid;
+
+    _tid = tid;
     entry_point = entry_point;
-    _stack = new char[STACK_SIZE];
+
+    _stack = new (std::nothrow) char[STACK_SIZE];
+    if (_stack == nullptr) {
+      fprintf(stderr, MEMORY_ALOC_ERR);
+      exit(1);
+    }
+
     _running_quantum_counter = 0;
     _sp = (address_t) _stack + STACK_SIZE - sizeof (address_t);
     _pc = (address_t) entry_point;
@@ -177,8 +185,14 @@ class ThreadManager
       fprintf (stderr, LIMIT_NUM_OF_TRD_ERR);
       return -1;
     }
-    Thread thread = Thread (tid, entry_point);
-    _threads[tid] = &thread;
+    //Thread thread = Thread (tid, entry_point);
+    Thread* thread = new (std::nothrow) Thread(tid, entry_point);
+    if (thread == nullptr) {
+      fprintf(stderr, MEMORY_ALOC_ERR);
+      _free_tids[tid] = 0;
+      exit(1);
+    }
+    _threads[tid] = thread;
     _ready_queue.push_back (tid);
     setup_thread (tid);
     return tid;
@@ -289,9 +303,6 @@ class ThreadManager
       _threads[next_tid]->inc_quantum_counter ();
       manage_sleepers ();
 
-      //TODO:
-      // 2.update sleeping threads
-      // 3.check blocked signals?
 
       // jump to the next thread
       siglongjmp (_env[_running_thread], 1);
