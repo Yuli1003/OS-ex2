@@ -2,11 +2,13 @@
 #include <iostream>
 #include <array>
 #include <queue>
+#include <deque>
 #include <signal.h>
 #include <sys/time.h>
 #include <map>
 #include <csetjmp>
 #include <setjmp.h>
+#include <algorithm>
 
 #define INIT_ERR "thread library error: non-positive number of quantum_usecs"
 #define SIGACTION_ERR "system error: sigaction error"
@@ -14,7 +16,11 @@
 #define SPAWN_ERR "thread library error: null _entry_point"
 #define LIMIT_NUM_OF_TRD_ERR "thread library error: maximum number of _threads"
 #define TID_NOT_EXISTS_ERR "thread library error: tid not exists"
-#define NO_READY_THREADS_IN_QUEUE "thread library error: no ready threads in queue"
+#define BLOCK_MAIN_THREAD_ERR "thread library error: trying to block main thread"
+#define BLOCK_TID_NOT_EXISTS_ERR "thread library error: trying to block non-existing thread"
+#define RESUME_NOT_EXISTS_TID_ERR "thread library error: trying to resume non-existing thread"
+#define MAIN_THREAD_CALL_SLEEP_ERR "thread library error: trying to sleep the main thread"
+#define NOT_VALID_QUANTUM_NUM "thread library error: number of quantums is not valid"
 
 /* translate address */
 
@@ -53,6 +59,8 @@ class Thread
   address_t _sp;
   address_t _pc;
   State _state;
+  bool _is_sleeping;
+  int _sleeping_counter;
 
  public:
   Thread (int tid, thread_entry_point entry_point)
@@ -64,20 +72,21 @@ class Thread
     _sp = (address_t) _stack + STACK_SIZE - sizeof (address_t);
     _pc = (address_t) entry_point;
     _state = READY;
+    _is_sleeping = false;
+    _sleeping_counter = 0;
   }
 
   ~Thread ()
   {
     delete[] _stack;
-
   }
 
-  address_t get_sp ()
+  address_t get_sp () const
   {
     return _sp;
   }
 
-  address_t get_pc ()
+  address_t get_pc () const
   {
     return _pc;
   }
@@ -85,6 +94,11 @@ class Thread
   int get_quantum_counter () const
   {
     return _running_quantum_counter;
+  }
+
+  void inc_quantum_counter ()
+  {
+    _running_quantum_counter++;
   }
 
   State get_state ()
@@ -96,6 +110,24 @@ class Thread
   {
     _state = state;
   }
+
+  bool get_is_sleeping () const
+  {
+    return _is_sleeping;
+  }
+  void set_sleeping_counter (int sleeping_counter)
+  {
+    _sleeping_counter = sleeping_counter;
+    _is_sleeping = true;
+  }
+  void dec_sleeping_counter ()
+  {
+    _sleeping_counter--;
+    if (_sleeping_counter == 0)
+    {
+      _is_sleeping = false;
+    }
+  }
 };
 
 /* Inner Class */
@@ -105,13 +137,12 @@ class ThreadManager
 {
  public:
   ThreadManager ()
-  {};
+  = default;
 
   void init (int quantum_usecs)
   {
     _time_per_thread = quantum_usecs;
     _running_thread = 0;
-    // TODO - how thread 0 is running?
     _quantum_counter = 1;
     _free_tids[0] = 1;
     setup_thread (0);
@@ -120,7 +151,7 @@ class ThreadManager
   void start_timer ()
   {
     _sa.sa_handler = &timer_handle;
-    if (sigaction (SIGVTALRM, &_sa, NULL) < 0)
+    if (sigaction (SIGVTALRM, &_sa, nullptr) < 0)
     {
       fprintf (stderr, SIGACTION_ERR);
       exit (1);
@@ -131,7 +162,7 @@ class ThreadManager
     _timer.it_interval.tv_sec = 0;
     _timer.it_interval.tv_usec = _time_per_thread;
 
-    if (setitimer (ITIMER_VIRTUAL, &_timer, NULL))
+    if (setitimer (ITIMER_VIRTUAL, &_timer, nullptr))
     {
       fprintf (stderr, SETITIMER_ERR);
       exit (1);
@@ -148,7 +179,7 @@ class ThreadManager
     }
     Thread thread = Thread (tid, entry_point);
     _threads[tid] = &thread;
-    _ready_queue.push (tid);
+    _ready_queue.push_back (tid);
     setup_thread (tid);
     return tid;
   }
@@ -159,6 +190,7 @@ class ThreadManager
     _threads.erase (tid);
     _env.erase (tid);
     _free_tids[tid] = 0;
+    erase_tid_from_queue (tid);
   }
 
   void remove_all ()
@@ -171,6 +203,12 @@ class ThreadManager
       }
     }
     _env.erase (0);
+  }
+
+  void erase_tid_from_queue (int tid)
+  {
+    _ready_queue.erase (std::remove (_ready_queue.begin (), _ready_queue.end (), tid),
+                        _ready_queue.end ());
   }
 
   bool is_tid_exists (int tid)
@@ -198,14 +236,17 @@ class ThreadManager
     sigemptyset (&_env[tid]->__saved_mask);
   }
 
-  int get_next_ready_tid() {
+  int get_next_ready_tid ()
+  {
     int cur_tid;
-    while (not _ready_queue.empty()) {
-      cur_tid = _ready_queue.front();
-      if (_free_tids[cur_tid] == 1) {
+    while (not _ready_queue.empty ())
+    {
+      cur_tid = _ready_queue.front ();
+      if (_free_tids[cur_tid] == 1)
+      {
         return cur_tid;
       }
-      _ready_queue.pop();
+      _ready_queue.pop_front ();
     }
     return 0;
   }
@@ -213,41 +254,47 @@ class ThreadManager
   void switch_thread (int is_cur_terminated = 0)
   {
     int cur_tid = _running_thread;
-    int next_tid = get_next_ready_tid();
+    int next_tid = get_next_ready_tid ();
     if (next_tid != 0)
     {
-      _ready_queue.pop ();
+      _ready_queue.pop_front ();
       _threads[next_tid]->set_state (RUNNING);
     }
 
     // save the current thread(if flag=0)
     int ret_val = 0;
-    if (is_cur_terminated == 0) {
-      ret_val = sigsetjmp(_env[cur_tid],1);
+    if (is_cur_terminated == 0)
+    {
+      ret_val = sigsetjmp(_env[cur_tid], 1);
     }
 
 
     // TODO - if cur_tid = 0 , do we need to push is to the queue?
-    start_timer();
+    start_timer ();
     if (ret_val == 0)
     {
       if (!(_ready_queue.empty ()) && cur_tid != 0 && is_cur_terminated == 0
           && _threads[cur_tid]->get_state () == RUNNING)
       {
-        _ready_queue.push (cur_tid);
+        if (not _threads[cur_tid]->get_is_sleeping ())
+        {
+          _ready_queue.push_back (cur_tid);
+        }
         _threads[cur_tid]->set_state (READY);
       }
 
       //update cur thread
       _running_thread = next_tid;
+      _quantum_counter++;
+      _threads[next_tid]->inc_quantum_counter ();
+      manage_sleepers ();
 
       //TODO:
-      // 1.update both quantum counters
       // 2.update sleeping threads
       // 3.check blocked signals?
 
       // jump to the next thread
-      siglongjmp (_env[_running_thread],1);
+      siglongjmp (_env[_running_thread], 1);
     }
   }
 
@@ -261,16 +308,60 @@ class ThreadManager
     return _quantum_counter;
   }
 
+  void block_thread (int tid)
+  {
+    _threads[tid]->set_state (BLOCKED);
+    if (tid == _running_thread)
+    {
+      switch_thread ();
+    }
+    else
+    {
+      erase_tid_from_queue (tid);
+    }
+  }
+
+  void resume_thread (int tid)
+  {
+    if (tid != 0 && _threads[tid]->get_state () == BLOCKED)
+    {
+      _threads[tid]->set_state (READY);
+      _ready_queue.push_back (tid);
+    }
+  }
+
+  void sleep_running_thread (int num_quantums)
+  {
+    _threads[_running_thread]->set_sleeping_counter (num_quantums + 1);
+    switch_thread ();
+  }
+
+  void manage_sleepers ()
+  {
+    for (auto pair: _threads)
+    {
+      if (pair.second->get_is_sleeping ())
+      {
+        pair.second->dec_sleeping_counter ();
+        if (pair.second->get_is_sleeping () && pair.second->get_state () !=
+                                               BLOCKED)
+        {
+          _ready_queue.push_back (pair.first);
+        }
+      }
+    }
+  }
+
  private:
   std::map<int, Thread *> _threads{};
   std::map<int, sigjmp_buf> _env{};
-  std::queue<int> _ready_queue{};
+  std::deque<int> _ready_queue{};
   std::array<int, MAX_THREAD_NUM> _free_tids = {};
-  int _running_thread;
-  int _time_per_thread;
-  int _quantum_counter;
+  int _running_thread{};
+  int _time_per_thread{};
+  int _quantum_counter{};
   struct sigaction _sa = {0};
-  struct itimerval _timer;
+  struct itimerval _timer{};
 
   int next_free_tid ()
   {
@@ -292,7 +383,6 @@ ThreadManager manager;
 void timer_handle (int sig)
 {
   manager.switch_thread (0);
-
 }
 /* External interface */
 
@@ -342,11 +432,49 @@ int uthread_terminate (int tid)
   }
 }
 
-int uthread_block (int tid);
+int uthread_block (int tid)
+{
+  if (tid == 0)
+  {
+    fprintf (stderr, BLOCK_MAIN_THREAD_ERR);
+    return -1;
+  }
+  if (not manager.is_tid_exists (tid))
+  {
+    fprintf (stderr, BLOCK_TID_NOT_EXISTS_ERR);
+    return -1;
+  }
 
-int uthread_resume (int tid);
+  manager.block_thread (tid);
+  return 0;
+}
 
-int uthread_sleep (int num_quantums);
+int uthread_resume (int tid)
+{
+  if (not manager.is_tid_exists (tid))
+  {
+    fprintf (stderr, RESUME_NOT_EXISTS_TID_ERR);
+    return -1;
+  }
+  manager.resume_thread (tid);
+  return 0;
+}
+
+int uthread_sleep (int num_quantums)
+{
+  if (manager.get_running_tid () == 0)
+  {
+    fprintf (stderr, MAIN_THREAD_CALL_SLEEP_ERR);
+    return -1;
+  }
+  if (num_quantums < 0)
+  {
+    fprintf (stderr, NOT_VALID_QUANTUM_NUM);
+    return -1;
+  }
+  manager.sleep_running_thread (num_quantums);
+  return 0;
+}
 
 int uthread_get_tid ()
 {
