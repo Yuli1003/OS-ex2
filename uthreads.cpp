@@ -443,6 +443,7 @@ int uthread_terminate (int tid)
     exit (0);
   }
   manager.remove_thread (tid);
+
   if (manager.get_running_tid () == tid)
   {
     manager.switch_thread (1);
