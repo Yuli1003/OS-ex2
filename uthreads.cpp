@@ -67,18 +67,7 @@ class Thread
   Thread (int tid, thread_entry_point entry_point)
   {
     _tid = tid;
-//    entry_point = entry_point;
-
-//    _stack = new (std::nothrow) char[STACK_SIZE];
-//    if (_stack == nullptr)
-//    {
-//      fprintf (stderr, MEMORY_ALOC_ERR);
-//      exit (1);
-//    }
-
     _running_quantum_counter = 0;
-//    _sp = (address_t) _stack + STACK_SIZE - sizeof (address_t);
-//    _pc = (address_t) entry_point;
     _state = READY;
     _is_sleeping = false;
     _sleeping_counter = 0;
@@ -153,7 +142,6 @@ class Thread
 
 /* Inner Class */
 
-
 class ThreadManager
 {
  private:
@@ -166,11 +154,9 @@ class ThreadManager
   int _quantum_counter{};
   struct sigaction _sa = {0};
   struct itimerval _timer{};
-  int _main_thread_quantums;
 
   int next_free_tid ()
   {
-    // TODO - is the 0 thread is part of 100 _threads?
     for (int i = 0; i < MAX_THREAD_NUM; i++)
     {
       if (_free_tids[i] == 0)
@@ -198,7 +184,6 @@ class ThreadManager
     _threads[0]->inc_quantum_counter();
     _free_tids[0] = 1;
     setup_thread (0);
-
   }
 
   void start_timer ()
@@ -250,7 +235,6 @@ class ThreadManager
 
   void remove_thread (int tid)
   {
-//    delete &_threads[tid];
     delete _threads[tid];
     _threads.erase (tid);
     _env.erase (tid);
@@ -345,7 +329,6 @@ class ThreadManager
       _threads[next_tid]->set_state(RUNNING);
       manage_sleepers ();
 
-
       // jump to the next thread
       siglongjmp (_env[_running_thread], 1);
     }
@@ -367,26 +350,37 @@ class ThreadManager
     return _quantum_counter;
   }
 
-  int terminate_thread (int tid)
-  {
-    if (not is_tid_exists (tid))
-    {
-      fprintf (stderr, TID_NOT_EXISTS_ERR);
+  int terminate_thread(int tid) {
+    if (!is_tid_exists(tid)) {
+      fprintf(stderr, TID_NOT_EXISTS_ERR);
       return -1;
     }
-    if (tid == 0)
-    {
-      remove_all ();
-      exit (0);
+
+    if (tid == 0) {
+      Thread* mainThr = _threads[0];
+      for (auto &p : _threads) {
+        int other_tid = p.first;
+        if (other_tid != 0) {
+          delete p.second;
+          _free_tids[other_tid] = 0;
+        }
+      }
+      _threads.clear();
+      _env.clear();
+      delete mainThr;
+      _free_tids[0] = 0;
+      exit(0);
     }
-    remove_thread (tid);
-    if (get_running_tid () == tid)
-    {
-      switch_thread (1);
+
+    remove_thread(tid);
+    if (_running_thread == tid) {
+      switch_thread(1);
+    }
+    else {
       return 0;
     }
-    return 0;
   }
+
 
   int block_thread (int tid)
   {
