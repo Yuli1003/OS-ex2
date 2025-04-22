@@ -79,7 +79,8 @@ class Thread
     } else {
       _stack = new (std::nothrow) char[STACK_SIZE];
       if (_stack == nullptr) {
-        fprintf (stderr, MEMORY_ALOC_ERR);;
+        fprintf (stderr, MEMORY_ALOC_ERR);
+        exit (1);
       }
       _sp = (address_t)_stack + STACK_SIZE - sizeof(address_t);
       _pc = (address_t)entry_point;
@@ -311,7 +312,6 @@ class ThreadManager
       ret_val = sigsetjmp(_env[cur_tid], 1);
     }
 
-    // TODO - if cur_tid = 0 , do we need to push is to the queue?
     start_timer ();
     if (ret_val == 0)
     {
