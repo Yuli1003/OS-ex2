@@ -10,17 +10,17 @@
 #include <setjmp.h>
 #include <algorithm>
 
-#define INIT_ERR "thread library error: non-positive number of quantum_usecs"
-#define SIGACTION_ERR "system error: sigaction error"
-#define SETITIMER_ERR "system error: setitimer error"
-#define SPAWN_ERR "thread library error: null _entry_point"
-#define LIMIT_NUM_OF_TRD_ERR "thread library error: maximum number of _threads"
-#define TID_NOT_EXISTS_ERR "thread library error: tid not exists"
-#define BLOCK_MAIN_THREAD_ERR "thread library error: trying to block main thread"
-#define BLOCK_TID_NOT_EXISTS_ERR "thread library error: trying to block non-existing thread"
-#define RESUME_NOT_EXISTS_TID_ERR "thread library error: trying to resume non-existing thread"
-#define MAIN_THREAD_CALL_SLEEP_ERR "thread library error: trying to sleep the main thread"
-#define NOT_VALID_QUANTUM_NUM "thread library error: number of quantums is not valid"
+#define INIT_ERR "thread library error: non-positive number of quantum_usecs\n"
+#define SIGACTION_ERR "system error: sigaction error\n"
+#define SETITIMER_ERR "system error: setitimer error\n"
+#define SPAWN_ERR "thread library error: null _entry_point\n"
+#define LIMIT_NUM_OF_TRD_ERR "thread library error: maximum number of _threads\n"
+#define TID_NOT_EXISTS_ERR "thread library error: tid not exists\n"
+#define BLOCK_MAIN_THREAD_ERR "thread library error: trying to block main thread\n"
+#define BLOCK_TID_NOT_EXISTS_ERR "thread library error: trying to block non-existing thread\n"
+#define RESUME_NOT_EXISTS_TID_ERR "thread library error: trying to resume non-existing thread\n"
+#define MAIN_THREAD_CALL_SLEEP_ERR "thread library error: trying to sleep the main thread\n"
+#define NOT_VALID_QUANTUM_NUM "thread library error: number of quantums is not valid\n"
 #define MEMORY_ALOC_ERR "system error: memory allocation failed\n"
 
 /* translate address */
@@ -204,7 +204,7 @@ class ThreadManager
     if (setitimer (ITIMER_VIRTUAL, &_timer, nullptr))
     {
       fprintf (stderr, SETITIMER_ERR);
-      exit (1);
+      //exit (1);
     }
   }
 
@@ -247,12 +247,11 @@ class ThreadManager
   {
     for (int i = 1; i < MAX_THREAD_NUM; i++)
     {
-      if (_free_tids[i] == 1 && i != _running_thread)
+      if (_free_tids[i] == 1)
       {
         remove_thread (i);
       }
     }
-    remove_thread (_running_thread);
     remove_thread (0);
   }
 
@@ -331,13 +330,13 @@ class ThreadManager
       _threads[next_tid]->set_state(RUNNING);
       manage_sleepers ();
 
-      // jump to the next thread
+      if (is_cur_terminated == 1){
+        remove_thread(cur_tid);
+      }
+
       siglongjmp (_env[_running_thread], 1);
     }
 
-    if (is_cur_terminated == 1){
-        remove_thread(cur_tid);
-    }
   }
 
   int get_quantum_counter_of_tid (int tid)
