@@ -8,7 +8,7 @@
 
 
 #define MAX_THREAD_NUM 100 /* maximal number of _threads */
-#define STACK_SIZE 4096 /* _stack size per thread (in bytes) */
+#define STACK_SIZE 100000 /* _stack size per thread (in bytes) */
 
 typedef void (*thread_entry_point)(void);
 

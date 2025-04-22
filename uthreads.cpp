@@ -244,15 +244,15 @@ class ThreadManager
 
   void remove_all ()
   {
-    for (int i = 0; i < MAX_THREAD_NUM; i++)
+    for (int i = 1; i < MAX_THREAD_NUM; i++)
     {
-      if (_free_tids[i] == 1)
+      if (_free_tids[i] == 1 && i != _running_thread)
       {
         remove_thread (i);
       }
     }
-    _threads.clear();
-    _env.clear();
+    remove_thread (_running_thread);
+    remove_thread (0);
   }
 
 
@@ -333,6 +333,10 @@ class ThreadManager
       // jump to the next thread
       siglongjmp (_env[_running_thread], 1);
     }
+
+    if (is_cur_terminated == 1){
+        remove_thread(cur_tid);
+    }
   }
 
   int get_quantum_counter_of_tid (int tid)
@@ -359,14 +363,15 @@ class ThreadManager
 
     if (tid == 0) {
       remove_all();
+      _threads.clear();
+      _env.clear();
       exit(0);
     }
-
-    remove_thread(tid);
     if (_running_thread == tid) {
       switch_thread(1);
     }
     else {
+      remove_thread(tid);
       return 0;
     }
   }
