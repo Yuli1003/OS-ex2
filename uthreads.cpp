@@ -244,15 +244,17 @@ class ThreadManager
 
   void remove_all ()
   {
-    for (int i = 1; i < MAX_THREAD_NUM; i++)
+    for (int i = 0; i < MAX_THREAD_NUM; i++)
     {
       if (_free_tids[i] == 1)
       {
         remove_thread (i);
       }
     }
-    _env.erase (0);
+    _threads.clear();
+    _env.clear();
   }
+
 
   void erase_tid_from_queue (int tid)
   {
@@ -357,18 +359,7 @@ class ThreadManager
     }
 
     if (tid == 0) {
-      Thread* mainThr = _threads[0];
-      for (auto &p : _threads) {
-        int other_tid = p.first;
-        if (other_tid != 0) {
-          delete p.second;
-          _free_tids[other_tid] = 0;
-        }
-      }
-      _threads.clear();
-      _env.clear();
-      delete mainThr;
-      _free_tids[0] = 0;
+      remove_all();
       exit(0);
     }
 
