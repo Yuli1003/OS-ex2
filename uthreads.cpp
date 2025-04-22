@@ -178,7 +178,6 @@ class ThreadManager
     _time_per_thread = quantum_usecs;
     _running_thread = 0;
     _quantum_counter = 1;
-    _free_tids[0] = 1;
 
     _threads[0] = new Thread(0, nullptr);
     _threads[0]->set_state(RUNNING);
