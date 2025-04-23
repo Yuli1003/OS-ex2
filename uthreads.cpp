@@ -155,6 +155,7 @@ class ThreadManager
   int _quantum_counter{};
   struct sigaction _sa = {0};
   struct itimerval _timer{};
+  int _pending_delete = -1;
 
   int next_free_tid ()
   {
@@ -172,6 +173,14 @@ class ThreadManager
  public:
   ThreadManager ()
   = default;
+
+  ~ThreadManager() {
+    remove_all();
+    _threads.clear();
+    _env.clear();
+    _ready_queue.clear();
+    _free_tids.fill(0);
+  }
 
   void init (int quantum_usecs)
   {
@@ -203,7 +212,7 @@ class ThreadManager
     if (setitimer (ITIMER_VIRTUAL, &_timer, nullptr))
     {
       fprintf (stderr, SETITIMER_ERR);
-      //exit (1);
+      exit (1);
     }
   }
 
@@ -235,7 +244,7 @@ class ThreadManager
 
   void remove_thread (int tid)
   {
-    delete _threads[tid];
+    _threads[tid]->~Thread ();
     _threads.erase (tid);
     _env.erase (tid);
     _free_tids[tid] = 0;
@@ -244,14 +253,13 @@ class ThreadManager
 
   void remove_all ()
   {
-    for (int i = 1; i < MAX_THREAD_NUM; i++)
+    for (int i = 0; i < MAX_THREAD_NUM; i++)
     {
       if (_free_tids[i] == 1)
       {
         remove_thread (i);
       }
     }
-    remove_thread (0);
   }
 
 
@@ -329,13 +337,22 @@ class ThreadManager
       _threads[next_tid]->set_state(RUNNING);
       manage_sleepers ();
 
-      if (is_cur_terminated == 1){
-        remove_thread(cur_tid);
+      if (_pending_delete != -1){
+        _free_tids[_pending_delete] = 0;
       }
 
       siglongjmp (_env[_running_thread], 1);
     }
 
+    else {
+
+      if (_pending_delete != -1)
+      {
+        int dead = _pending_delete;
+        _pending_delete = -1;
+        remove_thread (dead);
+      }
+    }
   }
 
   int get_quantum_counter_of_tid (int tid)
@@ -355,18 +372,15 @@ class ThreadManager
   }
 
   int terminate_thread(int tid) {
-    if (!is_tid_exists(tid)) {
-      fprintf(stderr, TID_NOT_EXISTS_ERR);
-      return -1;
-    }
-
-    if (tid == 0) {
-      remove_all();
-      _threads.clear();
-      _env.clear();
-      exit(0);
-    }
+//
+//    if (tid == 0) {
+//      remove_all();
+//      _threads.clear();
+//      _env.clear();
+//      exit(0);
+//    }
     if (_running_thread == tid) {
+      _pending_delete = tid;
       switch_thread(1);
     }
     else {
@@ -477,6 +491,10 @@ void unblock_signals (sigset_t old_mask)
   }
 }
 
+void cleanup_all_threads() {
+  manager.remove_all();
+}
+
 /* External interface */
 
 int uthread_init (int quantum_usecs)
@@ -487,6 +505,7 @@ int uthread_init (int quantum_usecs)
     return -1;
   }
   manager.init (quantum_usecs);
+  atexit(cleanup_all_threads);
   manager.start_timer ();
   return 0;
 }
@@ -502,6 +521,10 @@ int uthread_spawn (thread_entry_point entry_point)
 int uthread_terminate (int tid)
 {
   sigset_t blocked_sigs = block_signals ();
+  if (tid == 0){
+    manager.remove_all();
+    exit(0);
+  }
   int ret_val = manager.terminate_thread (tid);
   unblock_signals (blocked_sigs);
   return ret_val;
