@@ -174,13 +174,6 @@ class ThreadManager
   ThreadManager ()
   = default;
 
-  ~ThreadManager() {
-    remove_all();
-    _threads.clear();
-    _env.clear();
-    _ready_queue.clear();
-    _free_tids.fill(0);
-  }
 
   void init (int quantum_usecs)
   {
@@ -244,7 +237,7 @@ class ThreadManager
 
   void remove_thread (int tid)
   {
-    _threads[tid]->~Thread ();
+    delete _threads[tid];
     _threads.erase (tid);
     _env.erase (tid);
     _free_tids[tid] = 0;
@@ -253,13 +246,14 @@ class ThreadManager
 
   void remove_all ()
   {
-    for (int i = 0; i < MAX_THREAD_NUM; i++)
+    for (int i = 1; i < MAX_THREAD_NUM; i++)
     {
       if (_free_tids[i] == 1)
       {
         remove_thread (i);
       }
     }
+    remove_thread(0);
   }
 
 
@@ -372,16 +366,17 @@ class ThreadManager
   }
 
   int terminate_thread(int tid) {
-//
-//    if (tid == 0) {
-//      remove_all();
-//      _threads.clear();
-//      _env.clear();
-//      exit(0);
-//    }
+
+    if (tid == 0) {
+      remove_all();
+      _threads.clear();
+      _env.clear();
+      exit(0);
+    }
     if (_running_thread == tid) {
       _pending_delete = tid;
       switch_thread(1);
+      return 0;
     }
     else {
       remove_thread(tid);
@@ -521,10 +516,6 @@ int uthread_spawn (thread_entry_point entry_point)
 int uthread_terminate (int tid)
 {
   sigset_t blocked_sigs = block_signals ();
-  if (tid == 0){
-    manager.remove_all();
-    exit(0);
-  }
   int ret_val = manager.terminate_thread (tid);
   unblock_signals (blocked_sigs);
   return ret_val;
