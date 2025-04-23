@@ -256,7 +256,6 @@ class ThreadManager
     remove_thread(0);
   }
 
-
   void erase_tid_from_queue (int tid)
   {
     _ready_queue.erase (std::remove (_ready_queue.begin (), _ready_queue.end (), tid),
@@ -368,10 +367,22 @@ class ThreadManager
   int terminate_thread(int tid) {
 
     if (tid == 0) {
-      remove_all();
-      _threads.clear();
-      _env.clear();
-      exit(0);
+      if (_running_thread == tid)
+      {
+        remove_all ();
+        _threads.clear ();
+        _env.clear ();
+        exit (0);
+      }
+      else {
+        while (_running_thread != 0){
+          switch_thread ();
+        }
+        remove_all ();
+        _threads.clear ();
+        _env.clear ();
+        exit(0);
+      }
     }
     if (_running_thread == tid) {
       _pending_delete = tid;
