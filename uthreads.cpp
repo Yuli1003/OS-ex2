@@ -332,7 +332,7 @@ class ThreadManager
 
       //update cur thread
       _running_thread = next_tid;
-      //TODO: fix if jumping to main thread for program termination ?
+      //TODO: fix if jumping to main thread for program/thread termination ?
       _quantum_counter++;
 
       _threads[next_tid]->inc_quantum_counter ();
