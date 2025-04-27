@@ -22,7 +22,9 @@
 #define MAIN_THREAD_CALL_SLEEP_ERR "thread library error: trying to sleep the main thread\n"
 #define NOT_VALID_QUANTUM_NUM "thread library error: number of quantums is not valid\n"
 #define MEMORY_ALOC_ERR "system error: memory allocation failed\n"
-
+#define TERMINATE_MAIN 2
+#define TERMINATE_CUR_THREAD 1
+#define NOT_TERMINATED 0
 /* translate address */
 
 typedef unsigned long address_t;
@@ -299,14 +301,20 @@ class ThreadManager
     return 0;
   }
 
-  void switch_thread (int is_cur_terminated = 0)
+  void switch_thread (int flag = 0)
   {
     int cur_tid = _running_thread;
-    int next_tid = get_next_ready_tid ();
+    int next_tid;
+    if (flag == TERMINATE_MAIN){
+      next_tid = 0;
+    }
+    else{
+      next_tid = get_next_ready_tid ();
+    }
 
     // save the current thread(if flag=0)
     int ret_val = 0;
-    if (is_cur_terminated == 0)
+    if (flag == NOT_TERMINATED)
     {
       ret_val = sigsetjmp(_env[cur_tid], 1);
     }
@@ -314,7 +322,7 @@ class ThreadManager
     start_timer ();
     if (ret_val == 0)
     {
-      if (is_cur_terminated == 0 && cur_tid != next_tid &&
+      if (flag == NOT_TERMINATED && cur_tid != next_tid &&
           _threads[cur_tid]->get_state() == RUNNING &&
           !_threads[cur_tid]->get_is_sleeping())
       {
@@ -338,12 +346,19 @@ class ThreadManager
     }
 
     else {
-
       if (_pending_delete != -1)
       {
-        int dead = _pending_delete;
-        _pending_delete = -1;
-        remove_thread (dead);
+        if (_pending_delete == 0){
+          remove_all ();
+          _threads.clear ();
+          _env.clear ();
+          exit(0);
+        }
+        else{
+          int dead = _pending_delete;
+          _pending_delete = -1;
+          remove_thread (dead);
+        }
       }
     }
   }
@@ -375,18 +390,20 @@ class ThreadManager
         exit (0);
       }
       else {
-        while (_running_thread != 0){
-          switch_thread ();
-        }
-        remove_all ();
-        _threads.clear ();
-        _env.clear ();
-        exit(0);
+        _pending_delete = 0;
+        switch_thread (TERMINATE_MAIN);
+//        while (_running_thread != 0){
+//          switch_thread ();
+//        }
+//        remove_all ();
+//        _threads.clear ();
+//        _env.clear ();
+//        exit(0);
       }
     }
     if (_running_thread == tid) {
       _pending_delete = tid;
-      switch_thread(1);
+      switch_thread(TERMINATE_CUR_THREAD);
       return 0;
     }
     else {
