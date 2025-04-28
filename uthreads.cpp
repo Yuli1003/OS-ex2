@@ -332,7 +332,6 @@ class ThreadManager
 
       //update cur thread
       _running_thread = next_tid;
-      //TODO: fix if jumping to main thread for program/thread termination ?
       _quantum_counter++;
 
       _threads[next_tid]->inc_quantum_counter ();
@@ -393,13 +392,6 @@ class ThreadManager
       else {
         _pending_delete = 0;
         switch_thread (TERMINATE_MAIN);
-//        while (_running_thread != 0){
-//          switch_thread ();
-//        }
-//        remove_all ();
-//        _threads.clear ();
-//        _env.clear ();
-//        exit(0);
       }
     }
     if (_running_thread == tid) {
